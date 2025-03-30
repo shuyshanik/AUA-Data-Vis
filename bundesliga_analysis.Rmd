@@ -1,0 +1,215 @@
+---
+title: "Bundesliga Analysis"
+author: "Shushanik Gortsunyan"
+date: "2025-03-30"
+output: pdf_document
+---
+
+# **Part 1: Trend Analysis**
+
+## **1. Trend of Goals per Season**
+
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE) 
+
+library(tidyverse)  
+
+bundesliga <- read.csv("/Users/shushanikgortsunian/Downloads/bundesliga.csv", sep=",")
+bundesliga$DATE <- as.Date(bundesliga$DATE, format="%Y-%m-%d") # convert date column to date type
+bundesliga$SEASON <- format(bundesliga$DATE, "%Y")
+
+#total goals and matches per season
+goals_per_season <- bundesliga %>%
+  group_by(SEASON) %>%
+  summarise(
+    Total_Goals = sum(FTHG + FTAG, na.rm = TRUE), 
+    Matches = n(), 
+    Avg_Goals_Per_Match = Total_Goals / Matches  
+  )
+
+# create a bar chart to show the total number of goals scored each season
+
+ggplot(goals_per_season, aes(x = SEASON, y = Total_Goals)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Total Goals per Season",
+       x = "Season",
+       y = "Total Goals") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# create a line chart to show how the average goals per match have changed over time
+
+ggplot(goals_per_season, aes(x = SEASON, y = Avg_Goals_Per_Match, group = 1)) +
+  geom_line(color = "red", size = 1.2) +  
+  geom_point(color = "black", size = 2) +  
+  labs(title = "Average Goals per Match Per Season",
+       x = "Season",
+       y = "Average Goals per Match") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+# Explanations:
+1) Total goals per season weren't that diverse as we can see from the plot
+only in 1993 and 2019 there were very few goals compared to other years, ~500, while for other years we have ~700-900 goals, and only in 1997 it was ~1000.
+2) We can see from the line plot that average number of goals had some kind of seasonality in 2 years time, it usually decreases, then increases starting from 1993, but starting 2015, we see a rapid increase until 2019.
+
+## **2. Goal Distribution Per Season** 
+```{r}
+knitr::opts_chunk$set(echo = TRUE) 
+
+# graph shows the distribution of goals per match, color-coded based on the threshold of 2.5
+
+ggplot(goals_per_season, aes(x = SEASON, y = Avg_Goals_Per_Match)) +
+  geom_col(aes(fill = Avg_Goals_Per_Match > 2.5)) +   
+  scale_fill_manual(values = c("red", "green")) +  # red for over 2.5, green for under
+  labs(title = "Goal Distribution Per Season (Over/Under 2.5 Goals)",
+       x = "Season",
+       y = "Average Goals per Match",
+       fill = "Above 2.5") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# summary of the Avg_Goals_Per_Match values
+summary(goals_per_season$Avg_Goals_Per_Match)
+
+ggplot(goals_per_season, aes(x = SEASON, y = Avg_Goals_Per_Match, fill = Avg_Goals_Per_Match > 3)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Goals per Match per Season (Color-coded by Avg > 3)",
+       x = "Season", y = "Average Goals per Match") +
+  scale_fill_manual(values = c("lightblue", "red")) +  # lightblue for < 3, red for > 3
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+# Explanations:
+As we can see from the first graph, all average goals were >2.5, so i printed the summary of distribution and seeing that it varies more under and over 3, i plotted another graph.
+
+## **3. Goal Trend by Team with Bayern Highlighted**
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE) 
+
+team_goals <- bundesliga %>%
+  group_by(SEASON, HOMETEAM) %>%
+  summarise(Total_Goals = sum(FTHG, na.rm = TRUE)) 
+
+team_goals$SEASON <- as.factor(team_goals$SEASON)
+
+bayern_goals <- team_goals %>%
+  filter(HOMETEAM == "Bayern Munich")
+
+ggplot(team_goals, aes(x = SEASON, y = Total_Goals, group = HOMETEAM, color = (HOMETEAM == "Bayern Munich"))) +
+  geom_line(size = 1.2) +
+  scale_color_manual(values = c("gray", "red")) +
+  geom_text(data = bayern_goals, aes(label = Total_Goals), color = "red", vjust = -0.5, size = 3) +
+  labs(title = "Goals Trend per Team per Season", x = "Season", y = "Total Goals") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  
+```
+
+# Explanations:
+As we can see, Bayern MUNICH has considerably large amount of total goals compared to other teams, the peak was in 2012(58 goals), but after that they have fewer goals but still higher in relation to other teams.
+
+---
+# **Part 2: Home Advantage Deconstructed**
+
+## **1. Home vs. Away Wins per Team per Season**
+
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE) 
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+home_wins <- bundesliga %>%
+  filter(FTHG > FTAG) %>%  # home team win
+  group_by(SEASON, HOMETEAM) %>%
+  summarise(Home_Wins = n(), .groups = "drop")
+
+away_wins <- bundesliga %>%
+  filter(FTAG > FTHG) %>%  # away team win
+  group_by(SEASON, AWAYTEAM) %>%
+  summarise(Away_Wins = n(), .groups = "drop")
+win_counts <- full_join(home_wins, away_wins, by = c("SEASON" = "SEASON", "HOMETEAM" = "AWAYTEAM"))
+
+# NA values with 0 (in case a team didnt win either home or away in that season)
+win_counts[is.na(win_counts)] <- 0
+
+heatmap_data <- win_counts %>%
+  pivot_longer(cols = c(Home_Wins, Away_Wins), 
+               names_to = "Win_Type", 
+               values_to = "Wins")
+ggplot(heatmap_data, aes(x = SEASON, y = HOMETEAM, fill = Wins)) +
+  geom_tile() +
+  scale_fill_gradient(low = "grey", high = "blue") +
+  labs(title = "Heatmap of Home vs. Away Wins per Team per Season",
+       x = "Season", y = "Team", fill = "Number of Wins") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+# Explanations:
+As we could conclude, Bayern Munich has relatively more number of wins. From the heatmap we also see that more blue colors have teams Werder Bremen, Leverkusen, Hamburg and Dortmund. Many teams either haven't played, because we have NaNs, or have failed because we see the grey color.
+
+## **2. Point Differential Density**
+
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE) 
+
+home_game_differential <- bundesliga %>%
+  mutate(Point_Differential_Home = FTHG - FTAG) %>%  # home team point differential
+  select(SEASON, HOMETEAM, Point_Differential_Home)
+
+away_game_differential <- bundesliga %>%
+  mutate(Point_Differential_Away = FTAG - FTHG) %>%  # away team point differential
+  select(SEASON, AWAYTEAM, Point_Differential_Away)
+
+point_differential_data <- home_game_differential %>%
+  rename(Team = HOMETEAM, Point_Differential = Point_Differential_Home) %>%
+  bind_rows(away_game_differential %>%
+              rename(Team = AWAYTEAM, Point_Differential = Point_Differential_Away)) %>%
+  filter(!is.na(Point_Differential))
+
+# density plots for point differential for both home and away games
+ggplot(point_differential_data, aes(x = Point_Differential, fill = Team)) +
+  geom_density(alpha = 0.3) + 
+  labs(title = "Point Differential Density for Home and Away Games",
+       x = "Point Differential (Goals Scored - Goals Conceded)",
+       y = "Density") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  scale_fill_viridis_d()  
+
+```
+# Explanation:
+Most games had close scores, but home teams usually did a little better. The different colors represent teams, and the spread shows that some games had big wins or losses.
+
+## **5. Overall performance**
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE) 
+
+team_goals_per_season <- bundesliga %>%
+  group_by(SEASON, HOMETEAM) %>%
+  summarise(total_goals = sum(FTTG), .groups = 'drop')
+
+ggplot(data = team_goals_per_season, aes(x = SEASON, y = total_goals, fill = HOMETEAM)) +
+  geom_bar(stat = "identity") +  
+  labs(title = "Overall Performance",
+       x = "Season Year",
+       y = "Goals Scored") +
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
